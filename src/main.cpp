@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     std::cout << "Input:\n" << input << "\n";
 
     // Example: instantiate the AutoEncoder (input_dim, latent_dim)
-    AutoEncoder model(128, 32);
+    AutoEncoder model(128, 64, 32);
     (void)model;
 
     return 0;

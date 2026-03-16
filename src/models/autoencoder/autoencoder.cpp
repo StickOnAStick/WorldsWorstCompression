@@ -1,22 +1,22 @@
 #include "models/autoencoder.hpp"
 #include <torch/torch.h>
 
-AutoEncoderImpl::AutoEncoderImpl(int input_dim, int latent_dim) {
+AutoEncoderImpl::AutoEncoderImpl(int input_dim, int medial_dim, int latent_dim) {
 
     encoder = torch::nn::Sequential(
-        torch::nn::Linear(input_dim, 256),
+        torch::nn::Linear(input_dim, medial_dim),
         torch::nn::ReLU(),
-        torch::nn::Linear(256, 128),
+        torch::nn::Linear(medial_dim, latent_dim),
         torch::nn::ReLU(),
-        torch::nn::Linear(128, latent_dim)
+        torch::nn::Linear(latent_dim, latent_dim)
     );
 
     decoder = torch::nn::Sequential(
-        torch::nn::Linear(latent_dim, 128),
+        torch::nn::Linear(latent_dim, latent_dim),
         torch::nn::ReLU(),
-        torch::nn::Linear(128, 256),
+        torch::nn::Linear(latent_dim, medial_dim),
         torch::nn::ReLU(),
-        torch::nn::Linear(256, input_dim)
+        torch::nn::Linear(medial_dim, input_dim)
     );
 
     register_module("encoder", encoder);
