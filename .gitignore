@@ -1,0 +1,8 @@
+build/
+out/
+bin/
+data/vocab
+data/random_words
+.vscode/
+
+autoencoder.pt
