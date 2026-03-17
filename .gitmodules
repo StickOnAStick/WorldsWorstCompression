@@ -1,0 +1,3 @@
+[submodule "include/Modern-Text-Tokenizer"]
+	path = include/Modern-Text-Tokenizer
+	url = git@github.com:Mecanik/Modern-Text-Tokenizer.git
