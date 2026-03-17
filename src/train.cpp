@@ -9,11 +9,15 @@
 #include "models/autoencoder.hpp"
 #include "Modern-Text-Tokenizer/Modern-Text-Tokenizer.hpp"
 
-static constexpr size_t EPOCHS = 1000;
+static constexpr size_t EPOCHS = 10;
 static constexpr size_t FILE_COUNT = 1000;
+
 static constexpr int    INPUT_DIM = 1024;
 static constexpr int    MEDIAL_DIM = 512;
 static constexpr int    LATENT_DIM = 512;
+
+static constexpr int    MAX_SEQ_LEN = 128;
+static constexpr int    BATCH_SIZE = 16;
 
 static const std::string VOCAB_PATH = "data/vocab/english_words.txt";
 static const std::string BASE_DATA_PATH = "data/random_words/";
@@ -69,8 +73,6 @@ int main() {
                         ? torch::Device(torch::kMPS)
                         : torch::Device(torch::kCPU);
 
-    
-
     // Model configuration
     MecanikDev::TextTokenizer tokenizer;
     tokenizer.load_vocab(VOCAB_PATH);
@@ -85,47 +87,71 @@ int main() {
     model->to(device);
     model->train();
 
+    auto params = model->parameters();
+    auto embed_params = embedding->parameters();
+
+    params.insert(params.end(), embed_params.begin(), embed_params.end());
+
     torch::optim::Adam optimizer(
+        params,
         torch::optim::AdamOptions(1e-3)
     );
-    optimizer.add_parameters(model->parameters());
-    optimizer.add_parameters(embedding->parameters());
     
     // Runtime stats
-    double avg_time_us;
+    double avg_time_us = 0.0;
     size_t time_sample_count = 0;
 
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
 
-        for(size_t i = 0; i < FILE_COUNT; i++){
-            std::ifstream input_file(BASE_DATA_PATH + std::to_string(i) + ".txt");
+        for(size_t file_idx = 0; file_idx < FILE_COUNT; file_idx++){
+            std::ifstream input_file(BASE_DATA_PATH + std::to_string(file_idx) + ".txt");
             if (input_file.fail() || !input_file.is_open()) {
-                std::cerr << "Failed to open data file: " << i << std::endl;
+                std::cerr << "Failed to open data file: " << file_idx << std::endl;
                 exit(1);
             }
-
-            torch::Tensor tokens = get_file_tokens(tokenizer, input_file).to(device);
-            torch::Tensor embeded_tokens = embedding(tokens);
-
-            auto output = model->forward(embeded_tokens);
-            auto loss = torch::mse_loss(output, embeded_tokens);
-
-            auto start = std::chrono::steady_clock::now();
-            optimizer.zero_grad();
-            loss.backward();
-            optimizer.step();
-            auto end = std::chrono::steady_clock::now();
-
-            std::chrono::duration<double, std::micro> duration_us = end - start;
-            avg_time_us += duration_us.count();
-            time_sample_count++;
-            double avg_time = avg_time_us / static_cast<double>(time_sample_count);
             
-            std::cout << "Epoch " << epoch
-                      << " Loss: " << loss.item<float>() 
-                      << "\tTime: " << duration_us.count() 
-                      << "\tAvg Time: "<< avg_time << std::endl;
+            // CPU for slicing
+            torch::Tensor tokens = get_file_tokens(tokenizer, input_file); 
+            size_t token_total_len = tokens.size(0);
 
+            std::vector<torch::Tensor> batch;
+
+            for(size_t tok_idx = 0; tok_idx + MAX_SEQ_LEN <= token_total_len; tok_idx += MAX_SEQ_LEN) {
+                auto chunk = tokens.slice(0, tok_idx, tok_idx + MAX_SEQ_LEN); // [seq]
+                batch.push_back(chunk);
+                
+                if (batch.size() <= BATCH_SIZE) {
+                    // [B, seq]
+                    auto batch_tensor = torch::stack(batch).to(device);
+                    
+                    // embed -> [B, SEQ, DIM]
+                    auto embed = embedding(batch_tensor);
+
+                    auto output = model->forward(embed);
+                    auto loss = torch::mse_loss(output, embed);
+
+                    auto start = std::chrono::steady_clock::now();
+
+
+                    optimizer.zero_grad();
+                    loss.backward();
+                    optimizer.step();
+                    auto end = std::chrono::steady_clock::now();
+
+                    std::chrono::duration<double, std::micro> duration_us = end - start;
+                    avg_time_us += duration_us.count();
+                    time_sample_count++;
+                    double avg_time = avg_time_us / static_cast<double>(time_sample_count);
+                    
+                    std::cout << "Epoch " << epoch
+                            << " Loss: " << loss.item<float>() 
+                            << "\tTime: " << duration_us.count() 
+                            << "\tAvg Time: "<< avg_time;
+                    
+                    batch.clear();
+                }
+            }
+            std::cout << std::endl;
             // Clean
             input_file.close();
         }
